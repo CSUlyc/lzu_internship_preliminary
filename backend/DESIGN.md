@@ -2,63 +2,62 @@
 
 ## 1. 我做到了哪一步
 
-- [x] L0：5 / 5 条（建表 / 发布 / 列表 / 详情 / 上下架）
-- [x] L1：4 / 4 条（下单 / 订单详情 / 订单列表 / 参数校验）
-- [x] L2：全部 5 项（模拟支付 / 并发不超卖 / 鉴权 / 自动化测试 / 索引专项）
+- [x] L0：5 / 5（建表、发布、列表、详情、上下架）
+- [x] L1：4 / 4（下单、订单详情、订单列表、参数校验）
+- [x] L2：5 / 5（模拟支付、并发不超卖、鉴权、自动化测试、索引专项）
 
-一句话：**我做了一个「商品 → 订单 → 支付」的校园好物市集后端，它能在一条命令启动的 H2 内存库上完成发布/上下架（带最简鉴权）、下单扣库存（事务 + 悲观行锁）、按手机号查订单、模拟支付（同步返回 paid、重复支付 409），但还不能做真实的异步支付回调和退款。**
+这次我实现的是一个校园好物市集后端，主要业务流程是商品发布、下单和支付。项目使用 H2 内存数据库，可以通过一条命令启动。商品发布和上下架需要登录鉴权，下单时使用事务和悲观行锁扣减库存，订单支持按手机号查询，模拟支付同步返回 `paid`，重复支付返回 409。目前没有实现真实支付回调和退款。
 
-**L2 的计分与完成口径**：题目规则是「任选 1~2 个，每个 6 分，两个封顶 10」。计分上 L2-9 + L2-10 已经拿满 10 分；L2-11（鉴权）与 L2-13（索引专项）不追加计分，但作为完整性与面试素材一并完成——这不是「刷题」，是因为鉴权与索引恰好是评委二轮最可能追问的两个工程点，做完整比留白更有底气。L2-12 自动化测试虽然不在选做计分内，但它是 L2-10「可重跑脚本」的载体，也顺带验证了 L1 下单事务的正确性。
+按照题目的计分规则，L2 每项 6 分，两项封顶 10 分。我主要选择 L2-9 和 L2-10，另外也完成了鉴权、自动化测试和索引实验。后面三项不再增加 L2 的分数，但能进一步完善接口保护、验证业务正确性，并了解实际查询的执行情况。
 
 ## 2. 我是怎么拆的
 
-| 顺序 | 我做的事 | 为什么排在这个位置 |
+| 顺序 | 我做的事 | 为什么这样安排 |
 |---|---|---|
-| 1 | 先写 `schema.sql`（三张表 + 约束） | 题目 §1 明确要求手写，且后续所有接口的行为都由表约束决定（比如 payments 的唯一约束就是支付幂等的兜底）。表先定，接口才有确定的边界 |
-| 2 | 工程骨架：统一响应 `{code,message,data}`、全局异常处理、`/api/health` | 这个骨架被后面所有接口复用。先做是避免每个接口各写一遍错误处理，最后尺寸失控 |
-| 3 | 商品模块 L0-2~L0-5 | 商品是唯一无外部依赖的模块，能独立跑通全部状态码（400/404/409），用来验证骨架和统一异常映射是对的 |
-| 4 | 下单 L1-6 | 依赖商品的 `price`/`stock`/`status`，必须在商品模块之后。这是整个项目唯一**同时**涉及事务和并发的地方，单独花一个阶段 |
-| 5 | 订单查询 L1-7/L1-8 | 纯读接口，不涉及事务，放在下单之后是因为需要一个真实存在的订单拿来查 |
-| 6 | 支付 L2-9 | **支付依赖订单号**——先有 `orders.order_no`，`payments` 才能通过外键指向它；先做支付没有订单可付 |
-| 7 | 并发测试 L2-10 | 依赖一个已完成的下单链路，测试对象就是第 4 步写好的事务 |
-| 8 | 补齐自动化测试 L2-12 | 功能全部稳定后才写，避免测试随实现反复改动而白写 |
-| 9 | 鉴权 L2-11 | **放在最后，因为它是横切关注点**：拦截器一挂，发布/上下架的调用方式就变了（要带 token）。先做功能、最后加鉴权，已有测试只需统一补一个登录步骤；反过来先做鉴权，之后每个功能测试都要先想 token 从哪来，干扰主流程 |
-| 10 | 索引专项 L2-13 | 纯「取证」工作：表结构和查询早已定稿，最后只需用 EXPLAIN 实测对比，产出证据与说明 |
+| 1 | 手写 `schema.sql` | 先确定三张表、字段和约束，后续业务有明确的数据基础 |
+| 2 | 搭建工程骨架 | 统一响应、异常处理和 `/api/health` 都是后续接口共用的组件 |
+| 3 | 商品模块 L0-2~L0-5 | 商品模块可以独立运行，适合先验证参数校验、数据库访问和异常映射 |
+| 4 | 下单 L1-6 | 下单依赖商品价格、状态和库存，需要单独处理事务与并发 |
+| 5 | 订单查询 L1-7/L1-8 | 下单完成后，可以使用实际创建的订单验证详情和分页查询 |
+| 6 | 支付 L2-9 | 支付依赖已有订单及其金额，放在订单模块之后实现 |
+| 7 | 并发测试 L2-10 | 验证已经实现的下单事务在并发请求下是否正确 |
+| 8 | 补齐自动化测试 L2-12 | 在主要功能稳定后集中补充边界和回归用例 |
+| 9 | 鉴权 L2-11 | 加入鉴权会改变发布和上下架接口的调用方式，因此放在业务接口稳定之后 |
+| 10 | 索引专项 L2-13 | 查询和表结构基本确定后，再通过 EXPLAIN 对比索引效果 |
 
-**为什么先建表再做接口，而不是先搭 Controller 再补数据库**：这个项目里「事务」「库存」「金额」这些点一旦表设计错了，后面所有接口都要跟着改。先把 CHECK/UNIQUE/FK 定死，让我后面每次写业务代码都有数据库做保底检查（例如 `total_amount = unit_price * quantity` 直接写成 CHECK 约束），比写完业务再补数据库约束要少一轮返工。
+我选择先建表而不是先写 Controller，主要是因为库存、金额和支付都涉及数据一致性。先确定 CHECK、UNIQUE 和外键约束，可以减少后续接口返工。例如，将 `total_amount = unit_price * quantity` 写成数据库 CHECK 约束，即使业务代码出现错误，数据库也能拒绝不合法的数据。
 
 ## 3. 我的程序分成哪几块
 
-| 文件 / 模块 | 负责什么 | 为什么单独拆出来 |
+| 文件 / 模块 | 职责 | 拆分原因 |
 |---|---|---|
-| `product/ProductController` / `order/OrderController` / `payment/PaymentController` | 只做 HTTP 层的事情：绑定参数、调 Service、包 `ApiResponse` | Controller 不碰事务和 SQL，换框架（比如换回纯 Servlet）时这层可以整体替换 |
-| `ProductService` / `OrderService` / `PaymentService` | 业务规则和事务边界。**唯一一个带 `@Transactional` 的层级** | 事务必须在一个完整方法内闭合。如果拆到 Repository 层，跨 Repository 调用就没有原子性了 |
-| `ProductRepository` / `OrderRepository` / `PaymentRepository` | 只写 SQL，用 `JdbcTemplate`，所有参数绑定，不做字符串拼接 | 用 JdbcTemplate 而非 ORM，是为了让「条件 UPDATE」「FOR UPDATE」「EXPLAIN」这些和并发/索引直接相关的 SQL 显式可见，评审能一眼看到锁和索引就在哪一行 |
-| `common/ErrorCode` | 业务码和 HTTP 状态的唯一来源 | 题目码表 8 个值，散落在各处极容易写错一个。集中成一个枚举，`ErrorCode.STOCK_INSUFFICIENT` 只有一个定义 |
-| `common/GlobalExceptionHandler` | 把所有异常（业务异常、参数校验失败、JSON 解析失败、404/405/500 等）收敛成统一结构 | 题目 §3 要求所有接口统一结构——如果每个 Controller 自己 try-catch，一定会有遗漏 |
-| `auth/AuthController` / `auth/AuthService` / `auth/AuthInterceptor` | 登录签发随机 token（内存态）、对两个写接口做 Bearer 校验 | 鉴权是横切关注点：放在拦截器里一处生效，而不是在 ProductController 的每个方法开头重复「先验 token」。AuthController 与其他 Controller 一样只做参数绑定 + 调 Service |
-| `config/JacksonConfig` / `config/WebConfig` | 只改序列化/反序列化行为（毫秒精度时间、严格类型、UTF-8），**不新建 ObjectMapper** | 见第 6 节「被 AI 带偏」——手工新建 ObjectMapper 会静默丢掉 `spring.jackson.*` 配置 |
-| `dto/` 下的 `Create*Request` / `*Response` / `*Query` | 请求/响应/查询条件的数据形状 | 和实体 `Product`/`Order`/`Payment` 分开：实体跟着数据库走，DTO 跟着接口契约走，改任一侧不连带另一侧 |
+| `ProductController` / `OrderController` / `PaymentController` | 参数绑定、调用 Service、封装 `ApiResponse` | 将 HTTP 处理与业务逻辑分开 |
+| `ProductService` / `OrderService` / `PaymentService` | 业务校验、状态更新和事务管理 | 在 Service 层统一管理跨 Repository 的事务 |
+| `ProductRepository` / `OrderRepository` / `PaymentRepository` | 使用 `JdbcTemplate` 执行 SQL，绑定查询参数 | SQL 和业务分离，同时可以直接查看行锁、条件更新和索引相关语句 |
+| `common/ErrorCode` | 集中定义业务码和 HTTP 状态 | 避免在不同接口中重复定义或写错错误码 |
+| `common/GlobalExceptionHandler` | 统一处理业务异常、参数错误、JSON 解析异常等 | 尽量保证错误响应结构一致 |
+| `auth/AuthController` / `auth/AuthService` / `auth/AuthInterceptor` | 登录、签发内存 token、校验两个写接口的 Bearer token | 通过拦截器集中处理鉴权，避免在每个商品接口中重复校验 |
+| `config/JacksonConfig` / `config/WebConfig` | 时间格式、严格类型校验及 UTF-8 配置 | 在 Spring 自动装配的基础上定制，不额外创建 ObjectMapper，具体原因见第 6 节 |
+| `dto/` 中的 Request / Response / Query | 请求、响应和查询参数 | 数据库实体与接口契约分开，便于分别维护 |
 
-**如果再加「退款」和「优惠券」，哪里会最先乱掉？**
+我没有使用 ORM，而是选择 JdbcTemplate。这个项目的 SQL 数量不多，同时题目重点考察事务、并发和索引。直接写 SQL 更方便理解 `FOR UPDATE`、条件扣减和执行计划，也便于排查问题。
 
-会是 `OrderService.create()`。现在这个方法是一个线性的「锁商品 → 校验 → 扣减 → 算价 → 插订单」五步，每一步都依赖上一步的状态。加「优惠券」意味着算价那一步不再是一个 `Math.multiplyExact`，而要变成「原价 → 查券 → 校验券有效期/门槛 → 抵扣」，并且这条链路上的每一步都可能失败、都可能需要回滚。再叠加「退款」意味着要能回滚一个已经支付的订单，而现在 `OrderService` 里完全没有这个概念（订单状态机只有 `created → paid`，没有回退路径）。
+### 如果增加退款和优惠券，哪里最需要调整？
 
-**具体会最先出问题的是**：
-1. 事务边界膨胀——`create()` 会从现在的 40 行涨到 100 行以上，所有校验都挤在一个方法里。
-2. 优惠券的并发扣减——现在 `products` 只有一把行锁，`coupons` 会是第二把，两把锁顺序不当就会死锁。
-3. 订单状态机复杂度——退款意味着 `paid → refunding → refunded`，`orders.status` 的 `CHECK` 约束要改，所有判断 `status='paid'` 的地方都要重审。
+我认为首先需要调整 `OrderService.create()` 和订单状态流转逻辑。目前下单流程比较简单：锁商品、校验、扣库存、计算价格、插入订单。加入优惠券后，算价还需要检查优惠券有效期、使用门槛和抵扣金额，并考虑优惠券与库存一起更新时的事务一致性。
 
-所以如果要做这些，我第一步会把 `OrderService.create()` 按「锁资源 → 校验 → 算价 → 落库」拆成几个内部步骤方法（但**仍然在同一个 `@Transactional` 方法内调用**，避免类内自调用绕过代理这个坑），第二步才是引入新的表和锁。
+退款则需要增加 `paid → refunding → refunded` 等状态，调整订单状态的 CHECK 约束，并重新检查已有支付状态判断。退款是新的业务操作，不能直接依赖原下单事务的回滚。
+
+如果继续扩展，我会优先把下单方法拆成资源锁定、业务校验、价格计算和数据写入几个内部步骤，仍由外层 `@Transactional` 方法统一管理事务。之后再增加优惠券、退款相关表和状态流转，并明确资源加锁顺序，避免商品和优惠券之间出现死锁。
 
 ## 4. 一次完整链路是怎么走的（下单事务）
 
-这是本项目唯一涉及事务和并发的地方，也是代码里注释和测试写得最多的部分。以「库存 5 的商品，扣 2 个」为例：
+下单是本项目的核心事务之一。下面以商品库存为 5、购买数量为 2 为例说明执行过程。
 
 ```
 POST /api/orders {productId: 2, quantity: 2, buyerName, buyerPhone, address}
   ↓
-OrderController.create()          —— 只做参数绑定，@Valid 拦下 quantity=0/"2"/2.5/超 int
+OrderController.create()          —— 只做参数绑定，JSON 反序列化及 @Valid 校验数量
   ↓
 OrderService.create()  @Transactional  ─┐ 事务开始
   ↓                                      │
@@ -80,13 +79,13 @@ OrderService.create()  @Transactional  ─┐ 事务开始
   6. INSERT INTO orders (order_no, ..., unit_price, total_amount, ...) 
         order_no = "SO" + yyyyMMdd + 32位UUID  ← 唯一约束 uk_orders_order_no 兜底
    ↓                                      │
-  7. 回读刚插入的订单，返回 201 + 订单数据
-  ↓                                      ┘ 事务提交，锁释放
+  7. 回读刚插入的订单，返回订单数据
+  ↓                                      ┘ 事务提交，锁释放，HTTP 201
 ```
 
-**这条链路上，任何一步抛异常，第 4 步已经执行的扣减都会随事务一起回滚**——这一点由 `OrderRollbackTest` 专门验证过：用固定单号替身制造唯一约束冲突，让失败点精确落在「扣库存之后、插订单时」，测试替身在事务内读到库存 4（证明扣减已执行），请求结束后从外部读到 5（证明已回滚）。只断言「最终是 5」是不够的——那也可能是因为扣减根本没执行过。
+如果扣减库存后发生异常，库存更新和订单写入会一起回滚。`OrderRollbackTest` 使用固定单号制造唯一约束冲突，使订单插入失败。测试在事务内读到库存 4，请求结束后从事务外读到库存 5。这两个读数分别证明了扣减确实执行过，以及事务回滚确实生效。
 
-**支付链路同理**（`PaymentService.pay()`）：
+支付接口采用类似的事务处理方式（`PaymentService.pay()`）：
 
 ```
 POST /api/payments {orderNo, method}
@@ -98,65 +97,53 @@ POST /api/payments {orderNo, method}
   → 返回 200 + payment
 ```
 
-两个并发支付同一订单时，后到者在 `FOR UPDATE` 上排队；先到者提交后，后到者读到 `status='paid'` 返回 409。即便这层逻辑失效，`payments.order_no` 上的唯一约束（`uk_payments_order_no`）也会让第二条支付记录插入失败——应用层锁 + 数据库约束两道防线。
+两个并发支付同一订单时，后到者在 `FOR UPDATE` 上排队；先到者提交后，后到者读到 `status='paid'` 返回 409。即便这层逻辑失效，`payments.order_no` 上的唯一约束（`uk_payments_order_no`）也会让第二条支付记录插入失败——因此，即使业务层检查出现问题，数据库唯一约束仍可阻止重复写入。
 
 ## 5. 一个取舍：我选了 A，没选 B
 
-- **可以在哪两个方案里选**：悲观行锁（`SELECT ... FOR UPDATE` + 扣减） / 条件原子 UPDATE（`UPDATE ... WHERE stock >= ?`，只看影响行数）
-- **我选了**：**悲观行锁**
-- **因为**：
+在下单扣库存时，我考虑了两种方案：A 是 `SELECT ... FOR UPDATE` 悲观行锁，B 是通过带库存条件的 UPDATE 原子扣减。最终采用 A。
 
-  AI 给出的推荐其实是条件原子 UPDATE，理由更少一条 SELECT、天然原子、不依赖数据库的锁语义。我最终没采纳它，原因有三个：
+AI 最初推荐条件 UPDATE，主要理由是 SQL 更少，也能直接保证库存扣减的原子性。我没有直接采用，主要考虑了以下几点：
 
-  1. **题目 L1-6 的错误判定顺序是硬性的**：不存在 → 404、下架 → 40902、库存不足 → 40901。条件 UPDATE 一条 SQL 只能告诉我会不会扣成功，**扣失败时无法区分「商品不存在」「已下架」「库存不足」三种情况**，还得回头再查一次商品才能分清——那这一条 SQL 的简洁性优势就没了，反而变成「先 UPDATE 再 SELECT 回查」两趟。
-  2. 行锁方案的判断顺序和题目的叙述顺序**完全同构**：锁住商品 → 检查存在 → 检查状态 → 检查库存 → 扣减。评审读代码时不需要在脑子里做「affected==0 到底对应哪种错误」的翻译。
-  3. AI 提出的核心反对理由是「H2 的 `FOR UPDATE` 锁语义不确定」。这一点**可以直接实测验证**，不需要靠信任——实际跑下来 H2 2.3 上 `FOR UPDATE` 正常串行化，10 并发库存 1 的商品恰好 1 成功 9 个 409，见第 7 节的测试证据。
+1. 题目要求区分商品不存在、商品下架和库存不足，分别返回 40401、40902 和 40901。条件 UPDATE 失败后，仅凭影响行数不能直接区分这些情况，通常还需要额外查询。
+2. 行锁方案可以先锁定商品，再依次检查商品状态和库存，最后扣减库存。业务处理顺序比较清楚，也方便在同一个事务中读取价格并保存订单快照。
+3. AI 对 H2 的 `FOR UPDATE` 行为有疑虑，我通过并发测试验证了当前环境。在 H2 2.3 中，库存为 1 时发起 10 个并发下单请求，实际结果为 1 个成功、9 个返回 409。
 
-  不过 AI 提的**事务失效清单我全部采纳了**：所有步骤都写在 `create()` 一个 public 方法内（不拆带 `@Transactional` 的子方法，避免类内自调用绕过 Spring 代理）；业务失败一律抛 `BusinessException`（`RuntimeException` 子类），不 catch 吞掉，保证异常能触发回滚。
+AI 关于 Spring 事务失效的提醒我保留了。`create()` 使用 public 方法作为事务入口，不依赖类内自调用触发新的事务代理；业务异常使用 `RuntimeException` 的子类，不在事务内部捕获后吞掉异常。
 
-- **代价是**：
-  1. **多一条 SELECT**：条件 UPDATE 方案一条 SQL 就能完成「判断 + 扣减」，行锁方案要先 `SELECT ... FOR UPDATE` 再 `UPDATE`。对本题这种单机小规模来说可以忽略，但数据量大时锁持有时间更长。
-  2. **并发时请求串行排队**：10 个并发请求会在锁上依次等待，最坏情况下第 10 个请求要等前 9 个都提交才能执行。本题规模下（毫秒级事务）不是问题，但如果事务里有慢操作（比如调用外部发短信接口），锁等待就会成为瓶颈——所以本项目的事务方法里**刻意没有任何网络调用**。
-  3. **依赖数据库的锁实现**：换数据库（例如某些配置下的 MySQL 取决于引擎）要重新确认 `FOR UPDATE` 的行为。这一点用并发测试固定住了，换数据库时重跑 `ConcurrentOrderTest` 就能验证。
+行锁方案也有代价。正常扣减前多一次 SELECT，同一商品的并发请求需要等待行锁。如果事务中包含外部网络请求，锁等待时间可能明显增加，所以当前事务中没有网络调用。此外，迁移数据库后仍需重新验证锁行为，可以直接重跑 `ConcurrentOrderTest`。对于当前单机、小规模的作业，我认为这些代价是可以接受的。
 
 ## 6. 我卡得最久的一个问题
 
-- **现象**：`price: "1990"` 这样的字符串本该被拒绝（题目 L1-6 明确 `quantity="2"` 必须 400），但实际测试里**被接受了**，变成了整数 1990。这个问题不是一开始就发现的——是后来补严格类型校验的测试时才暴露出来。
+后来补充参数类型测试时，我发现 `price: "1990"` 被转换成整数 1990 并通过了校验。题目明确要求下单数量不能接受字符串，因此我希望金额、库存和数量等整数参数都采用严格的 JSON 类型校验。
 
-- **我一开始以为**：是 `spring.jackson.mapper.allow-coercion-of-scalars=false` 这个配置没写对，或者配置项名字拼错了。
+一开始我怀疑是 `application.yml` 中的 `spring.jackson.mapper.allow-coercion-of-scalars=false` 写错了。检查拼写后没有发现问题，于是增加了一个测试用的 Controller，只接收并回显整数，绕开全部业务逻辑。结果 `{"quantity":"2"}` 仍返回 200，而不是预期的 400，说明问题出在反序列化阶段。
 
-- **试过什么**：
-  1. 检查 `application.yml` 里配置项拼写 —— 没错，用的是官方文档里的全名。
-  2. 加了一个测试专用的探针 Controller，只做 JSON → 整数回显，绕过所有业务逻辑 —— **探针接口仍然接受了 `"1990"`**，说明问题不在业务代码，而在更底层的反序列化配置。
-  3. 打印 `ObjectMapper.getDeserializationConfig()` 里的 feature 状态 —— 发现 `ALLOW_COERCION_OF_SCALARS` 是 `false`，但请求仍然能通过。
+接着检查 `ObjectMapper.getDeserializationConfig()`，发现被检查的 mapper 上 `ALLOW_COERCION_OF_SCALARS` 已经是 `false`。这让我开始怀疑实际处理 HTTP 请求的 mapper 和检查的实例不是同一个。
 
-- **最小复现**：一个只有 `@RequestBody` 的接口，body `{"quantity":"2"}`，期望 400，实际 200 且 `quantity=2`。这个复现后来写成了 `JsonStrictnessTest`，至今还在测试套件里跑。
+最后发现有两个原因：之前为了统一 `LocalDateTime` 的输出格式，采用了 AI 推荐的 `new Jackson2ObjectMapperBuilder().build()`，手工创建的 mapper 没有继承 Spring Boot 的 `spring.jackson.*` 配置。另外，字符串转数字和浮点数转整数由不同的 Jackson 特性控制，只设置其中一项不能覆盖全部情况。
 
-- **真正的原因**：在两处。**第一处**是 `LocalDateTime` 序列化格式不对，当时 AI 给的方案是手工 `new Jackson2ObjectMapperBuilder().build()` 造一个 `ObjectMapper` 来定制格式——这个写法**能跑、时间格式也确实变成了想要的样式**，但手工新建的 `ObjectMapper` **不会继承 `spring.jackson.*` 配置**，`allow-coercion-of-scalars=false` 被静默丢掉了：不报错，只是配置不生效。**第二处**是 `accept-float-as-int` 和 `allow-coercion-of-scalars` 覆盖的是两个不同的特性（标量强转 vs 浮点转整数），只开其中一个，`2.5` 或 `"2"` 总有一个能漏过去。
+修复时，我在 `config/JacksonConfig.java` 中改为注册 `SimpleModule` bean，让 Spring Boot 自动装配到已有的 mapper 上；`WebConfig` 只修改已有消息转换器，不再新建 mapper。同时将 `allow-coercion-of-scalars` 和 `accept-float-as-int` 都设为 `false`，关闭对应的类型转换行为。
 
-- **怎么修的**：
-  1. 把 Jackson 定制从「手工新建 ObjectMapper」改成「注册一个 `SimpleModule` bean」——Spring Boot 会把容器里的 `Module` 自动装配到它自己构建的 `ObjectMapper` 上，`spring.jackson.*` 配置不受影响（见 `config/JacksonConfig.java`）。
-  2. `WebConfig` 里同样只修改已经由 Spring 建好的转换器实例，不新建。
-  3. `application.yml` 里两个开关（`allow-coercion-of-scalars`、`accept-float-as-int`）都打开。
-  4. 补了两个层次的测试：`JsonStrictnessTest.ObjectMapperFeaturesApplied` 直接断言 ObjectMapper 上这两个 feature 的状态；`OrderCreateTest` 和 `ProductCreateTest` 从 HTTP 层验证 `"2"`、`2.5`、`2.0`、`true` 全部 400。
+验证分为两层：`JsonStrictnessTest.ObjectMapperFeaturesApplied` 检查实际 feature 状态；`OrderCreateTest`、`ProductCreateTest` 和 `OrderValidationTest` 从 HTTP 层验证 `"2"`、`2.5`、`2.0`、`true` 等非法整数输入。相关回归测试全部通过，其中 `JsonStrictnessTest` 有 12 个用例。
 
-- **回归测试**：`JsonStrictnessTest`（12 例）+ `OrderCreateTest` 里的类型校验用例 + `OrderValidationTest` 里的 `quantity="2"`/`2.0` 组合顺序用例，全部通过（见第 7 节测试证据）。这个问题之后，凡是涉及「框架自动装配的东西」，我都会先问「这个 bean 是怎么来的」而不是看到一个能用的写法就套上去。
+这次排查让我意识到，框架配置是否正确和运行时是否真正使用该配置是两回事。之后遇到自动装配相关的问题，我会先确认实际使用的 bean 和配置，再考虑修改业务代码。
 
 ## 7. 没做的事和已知问题
 
-| 项 | 状态 | 原因 |
+| 项目 | 状态 | 说明 |
 |---|---|---|
-| 异步支付回调 / 轮询 | 没做 | 题目允许「直接同步返回 paid，不用真做异步回调」 |
-| token 过期 / 登出 / 多角色 | 没做 | 题目明确「不要求 JWT、不要求过期、不要求角色」；token 存内存，服务重启即全部失效（单机内存 H2 场景的预期行为） |
-| 字符串字段接受数字/布尔 JSON 值 | 已知边界 | `ALLOW_COERCION_OF_SCALARS=false` 只拦截「字符串 → 数字」单向，`"buyerName": 123` 会被转成字符串 `"123"` 并正常入库（201）。对 `quantity`/`price`/`stock` 这些**数值字段**严格类型是完整的（400），但字符串字段收到数字不是 400。实测确认过，来源是 Jackson 的已知行为（`docs/决策与遗留问题.md` 有表格记录），**选择接受而非修**：题目没有明确要求字符串字段收到数字必须 400，且不影响任何金额/库存计算 |
-| `Accept: application/xml` 返回 406 但响应体为空 | 已知限制 | 内容协商发生在消息转换之前，Spring 判定无法产生可接受类型后直接结束响应，`@ExceptionHandler` 拿不到已提交的响应来填充 body。实际影响极小——本项目只提供 JSON，客户端正常场景不会触发 |
-| 分页 COUNT 与 SELECT 是两条独立查询 | 已知限制，选择接受 | 并发写入时 total 与 items 可能有一个瞬时不一致窗口。为它加事务/快照读对这个规模的单机内存库是过度设计，且两条查询共用同一个 WHERE 子句（`ProductRepository.Filter`），保证筛选条件永远一致 |
-| 并发验证靠单元测试而非独立脚本 | 已知取舍 | `ConcurrentOrderTest` 用真实 Tomcat + 真实 HTTP 并发，是可重跑的（`mvn test -Dtest=ConcurrentOrderTest`）；但没有额外提供脱离测试框架的独立 shell 脚本，评审需要靠 Maven 跑 |
-| 索引避免排序的收益在 H2 上不可得 | 引擎限制（如实记录） | 索引把扫描行数从全表 20001 收敛到 1001（约 20 倍），但 H2 2.x 不沿索引序在 LIMIT 处提前终止，ORDER BY 仍需对 1000 行排序；换支持 index-order scan 的引擎（如 PostgreSQL）同一 DDL 可进一步免排序。详见附录 A |
+| 异步支付回调、轮询和退款 | 未实现 | 当前仅做同步模拟支付，不接入真实支付平台 |
+| token 过期、登出、多角色 | 未实现 | 题目不要求这些功能；当前 token 存在服务端内存，重启后失效 |
+| 字符串字段接受数字或布尔值 | 已知限制 | 实测 `"buyerName": 123` 会被 Jackson 转成字符串并接受；金额、库存、数量的严格整数校验已覆盖。题目未明确要求字符串字段拒绝这种转换，因此暂未处理，详见 `docs/决策与遗留问题.md` |
+| `Accept: application/xml` 返回 406 且响应体为空 | 已知限制 | 与 Spring 内容协商有关，当前系统仅支持 JSON，暂未为这种请求增加特殊处理 |
+| 分页 COUNT 和 SELECT 独立查询 | 已知限制 | 并发写入时 total 和 items 可能短暂不一致；两条查询共用 `ProductRepository.Filter` 生成的筛选条件。当前接受弱一致性，未增加快照读 |
+| 未提供独立并发脚本 | 已知取舍 | `ConcurrentOrderTest` 使用真实 Tomcat 和 HTTP 请求进行并发集成测试，可以通过 Maven 重跑，但尚未提供脱离测试框架的 shell 脚本 |
+| H2 索引未消除排序 | 实验限制 | 本次 scanCount 从 20001 降至 1001，但未验证到 LIMIT 提前终止或免排序的收益，详见附录 A |
 
-### 测试证据（本次真实执行）
+### 测试结果
 
-`./mvnw clean test`，21 个测试类，**242 个用例，0 失败 0 错误 0 跳过**：
+执行 `./mvnw clean test`，共 21 个测试类、242 个用例，0 失败、0 错误、0 跳过。
 
 | 测试类 | 用例数 | 覆盖什么 |
 |---|---|---|
@@ -184,11 +171,9 @@ POST /api/payments {orderNo, method}
 
 ## 8. 如果还有一天
 
-1. **给字符串字段（`buyerName`/`title`/`address` 等）补严类型校验**，堵上 `"buyerName": 123` 被静默转成 `"123"` 的边界。技术上不复杂——在现有的 `JacksonConfig` `SimpleModule` 里注册一个自定义 `String` 反序列化器，遇到非文本 token 直接抛 `MismatchedInputException`——但这会改动已经被大量测试覆盖的 DTO 反序列化路径，需要先补一轮回归测试确认不影响已有 242 个用例。排第一，因为它经过权衡仍然选择接受，是全项目唯一一个主动开放的输入口径缺口。
-
-2. **提供一个不依赖 JUnit/Maven 的独立并发验证脚本**（比如 `scripts/concurrent-order.sh`，纯 `curl` + `xargs -P`）。理由：现在的并发验证必须通过 `./mvnw test -Dtest=ConcurrentOrderTest` 才能跑，如果评审环境没有 Maven 或者想快速看一眼「是不是真的不超卖」，当前方式门槛偏高。写在第二位，是因为 `SUBMISSION.md` 已经把测试命令交代清楚，属于锦上添花而不是必需。
-
-3. **给鉴权补上最小生命周期管理：token 过期 + 登出**。现在 token 存服务端内存、永不主动失效（题目明确不要求），但如果这条链路要往真实系统走，第一步就是「怎么让一个 token 失效」——这是一次小型的状态机设计，和支付状态机同类问题，适合当下一轮的练习。
+1. 优先完善字符串字段的类型校验。现在 `buyerName`、`title`、`address` 等字段仍可能接受非字符串 JSON 值。计划在现有 `JacksonConfig` 的 `SimpleModule` 中注册自定义 String 反序列化器，拒绝非文本 token，并重新执行全量回归测试。这项优先级最高，因为它直接关系到接口输入的准确性。
+2. 增加独立的并发验证脚本，例如使用 `curl` 和 `xargs -P` 实现 `scripts/concurrent-order.sh`。目前 Maven 集成测试已经能够验证并发不超卖，独立脚本可以让评审在服务启动后更方便地复现结果。
+3. 增加 token 过期和登出机制。当前内存 token 满足题目基本要求，但不能主动失效。如果系统继续向实际应用发展，需要进一步管理 token 的有效期及注销状态。
 
 ---
 
@@ -209,7 +194,7 @@ ORDER BY created_at DESC, id DESC
 LIMIT 10 OFFSET 0
 ```
 
-典型参数：`buyer_phone = '13800000000'`（一个真实买家）、`page = 1`、`pageSize = 10`。这是本系统唯一的买家侧高频查询：手机号等值过滤 + 按时间倒序翻页，订单表随业务增长是数据量最大的表。
+典型参数为 `buyer_phone = '13800000000'`、`page = 1`、`pageSize = 10`。这个接口按买家手机号筛选订单，再按时间倒序分页。随着订单数量增长，有必要减少每次查询的扫描范围。
 
 ### A.2 索引设计与选列理由
 
@@ -218,45 +203,36 @@ CREATE INDEX idx_orders_buyer_phone_created
     ON orders (buyer_phone, created_at DESC, id DESC);
 ```
 
-三列各有分工，顺序不可换：
-
-| 列 | 角色 | 为什么是它 |
+| 列 | 作用 | 选择理由 |
 |---|---|---|
-| `buyer_phone` | **等值过滤列**，必须放最左 | 查询是 `WHERE buyer_phone = ?`，最左前缀才能让索引参与过滤；放其他列在左，索引就得全扫或直接失效（最左前缀原则） |
-| `created_at DESC` | **排序列** | `ORDER BY created_at DESC`，索引声明 DESC 使索引内的物理顺序与查询顺序一致（方向按降序建，不是靠引擎反向扫描） |
-| `id DESC` | **决胜列（对翻页正确性负责）** | 业务排序是 `created_at DESC, id DESC`：`created_at` 是 TIMESTAMP，同毫秒并列时必须有确定次序，否则翻页会重复/漏行（L1-8 的设计里就写死了 id DESC 决胜）。把决胜列纳入索引，索引序与查询序完全同构 |
+| `buyer_phone` | 等值过滤 | 放在联合索引首列，便于按手机号缩小查询范围 |
+| `created_at DESC` | 时间排序 | 与订单列表的主要排序条件一致 |
+| `id DESC` | 次级排序 | 创建时间相同时按 ID 排序，使静态数据集上的分页顺序保持稳定 |
 
-备选与放弃的原因：
+我也考虑过只给 `buyer_phone` 建索引，它能减少扫描范围，但不能直接提供完整的排序顺序。只给 `created_at` 建索引则不能直接利用手机号等值条件缩小扫描范围。不建索引时，本次实验使用的是全表扫描。
 
-- **单独索引 `(buyer_phone)`**：能过滤但不能提供顺序，每页都要对买家的全部历史订单排序，翻到深页代价线性增长；
-- **单独索引 `(created_at)`**：查询不含全局时间过滤，只按手机号，此索引对本查询完全用不上；
-- **不建索引**：全表扫描 + 全排序，数据量一大分页不可用（下方实测）。
-- 为什么**不给 `products.title` 建索引**：L0-3 的 keyword 检索是 `LIKE '%kw%'` 前后通配，B 树索引天然无效（`docs/决策与遗留问题.md` 的 EXPLAIN 实测表，`LOWER()` 与否都是 tableScan）；方向应该是全文/倒排索引，不是本轮的 B 树。
+商品标题查询使用 `LIKE '%kw%'`，普通 B 树索引通常无法有效利用前缀定位。`docs/决策与遗留问题.md` 中记录了相关 EXPLAIN 结果，使用 `LOWER()` 与否均为 tableScan，因此本次没有为标题增加普通索引。后续可以考虑全文检索。
 
-### A.3 评审如何复核（可重跑）
+### A.3 复现方法
 
 ```bash
 cd backend
 ./mvnw test -Dtest=IndexExplainTest
 ```
 
-`IndexExplainTest` 自带数据构建（20 个买家 × 每人 1000 单 = 2 万行，`created_at` 逐行递增模拟真实增长），对**同一份数据、同一条 SQL、同一组参数**依次执行：
+测试构造 20 个买家，每人 1000 条订单，共 2 万行，创建时间逐行递增。在相同数据、SQL 和参数下，先删除索引执行 `EXPLAIN ANALYZE`，再按 `schema.sql` 重建索引并执行同样的查询。
 
-1. `DROP INDEX` → `EXPLAIN ANALYZE`（无索引基线）；
-2. 按 schema.sql 原定义重建索引 → `EXPLAIN ANALYZE`。
+测试会输出完整执行计划和 `scanCount`，并对结果进行断言，可与 `SUBMISSION.md` 中 L2-13 的记录核对。
 
-两份完整执行计划与 `scanCount` 打印在测试输出里，同时作为断言依据——把 `SUBMISSION.md` L2-13 的表格数字复跑一遍即可核对。
+### A.4 实测结果（H2 2.x）
 
-### A.4 实测对比（H2 2.x，本次真实输出）
+| 场景 | 执行计划关键行 | scanCount |
+|---|---|---:|
+| 无索引 | `/* PUBLIC.ORDERS.tableScan */` + 内存排序 | 20001 |
+| 有索引 | `/* PUBLIC.IDX_ORDERS_BUYER_PHONE_CREATED: BUYER_PHONE = ?1 */` | 1001 |
 
-| 场景 | 执行计划（关键行） | scanCount（物理扫描行数） |
-|---|---|---|
-| 无索引 | `/* PUBLIC.ORDERS.tableScan */` + 内存排序 | **20001**（全表 2 万行 + 1 次边界探测） |
-| 有索引 | `/* PUBLIC.IDX_ORDERS_BUYER_PHONE_CREATED: BUYER_PHONE = ?1 */` | **1001**（目标买家 1000 行 + 1 次边界探测） |
+加索引后，扫描计数从 20001 降到 1001，约为原来的二十分之一。主要收益来自手机号过滤：查询不再扫描所有买家的订单。
 
-**怎么解释这两个数字**：
+不过，本次 H2 执行计划没有在取得 10 条结果后提前停止扫描，仍需对目标买家的订单进行排序。因此这里能确认的是扫描范围缩小，不能据此声称消除了排序，也不能把扫描量下降直接等同于耗时下降 20 倍。
 
-- 扫描量从「全表 20001」降到「该买家的 1001」，约 **20 倍**收敛——这是索引作为**过滤**的收益，买家的历史订单再多，也只读属于这个买家的那一段；
-- 但要**如实说明**：H2 2.x 在本查询形态下没有利用索引序在 `LIMIT 10` 处提前终止（若免排序成立，scanCount 应约 11），`ORDER BY` 仍对 1001 行做了排序。也就是说本引擎拿到的收益是「扫描范围收敛」，不是「免排序」。这是 H2 优化器的能力边界，不是索引设计的问题：索引序（`buyer_phone` 等值 + `created_at DESC` + `id DESC`）与查询序已完全同构，换成支持 index-order scan 提前终止的引擎（如 PostgreSQL）同一 DDL 即可进一步免排序；若在 MySQL 上复核，用同样的 DDL 与数据在 `EXPLAIN` 里看 `Using index condition` / 是否出现 `Using filesort` 对照即可。
-
-**这个结论本身也说明了设计过程**：索引不是加了就一定有想要的全部收益，实测数字（scanCount 20001 → 1001）和「没有免排序」的如实记录，比只说「加了索引变快了」可信——这也是 A.3 提供可重跑测试的原因：任何人随时能验证或推翻我上面每一个数字。
+如果以后迁移到 PostgreSQL 或 MySQL，可以用同一份数据和查询重新检查执行计划，验证联合索引是否还能避免额外排序。当前结论仅针对本次 H2 实验。
