@@ -95,11 +95,13 @@ CREATE TABLE payments (
 -- 索引
 --
 -- 支撑题目 §5 L1-8：按 buyerPhone 查询订单列表、按创建时间倒序。
--- created_at 在同一毫秒可能并列，业务层排序会追加 id DESC 保证确定性。
+-- created_at 在同一毫秒可能并列，业务层排序会追加 id DESC 保证确定性；
+-- 因此第三列把 id DESC 也放进索引，让索引序 = 查询序（created_at DESC, id DESC），
+-- 分页时可以沿索引顺序直接取前 N 条（L2-13 专项，详见 DESIGN.md 附录 A）。
 --
 -- 暂不建立：
 --   products.title        —— L0-3 keyword 为 LIKE '%kw%'，B-tree 索引无效
 --   products(category)    —— 数据量小，内存库全表扫描开销可忽略
 -- ---------------------------------------------------------------------
 CREATE INDEX idx_orders_buyer_phone_created
-    ON orders (buyer_phone, created_at DESC);
+    ON orders (buyer_phone, created_at DESC, id DESC);
