@@ -58,6 +58,24 @@
     </dependencies>
 
     <build>
+        <!--
+            schema.sql 的唯一源文件在 backend/ 根目录（题目 §1 目录要求），
+            这里把它一并复制进 classpath，使 mvn spring-boot:run、mvn test、
+            java -jar 三种启动方式都不依赖当前工作目录。
+            注意：显式声明 <resources> 会覆盖默认值，因此必须保留 src/main/resources。
+        -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}</directory>
+                <includes>
+                    <include>schema.sql</include>
+                </includes>
+            </resource>
+        </resources>
+
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
