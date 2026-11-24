@@ -1,0 +1,27 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: lzu-marketplace
+
+  # H2 内存库：每次启动从零开始，评审无需任何外部依赖即可运行
+  datasource:
+    url: jdbc:h2:mem:marketplace;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  h2:
+    console:
+      enabled: false
+
+  # 严格整数校验：官方要求 quantity="2" 这类字符串必须按 400 处理，
+  # 不能让 Jackson 把 JSON 字符串静默转成数字（详见 docs/P01-需求分析.md §5.4）
+  jackson:
+    mapper:
+      allow-coercion-of-scalars: false
+
+logging:
+  level:
+    root: info
