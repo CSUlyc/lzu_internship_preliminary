@@ -86,6 +86,18 @@ public class ProductRepository {
     }
 
     /**
+     * 更新商品上下架状态。
+     *
+     * <p>返回受影响行数：0 表示该 id 不存在（状态相同也会返回 1，
+     * 因为 UPDATE 命中行即计数，不受值是否变化影响）。
+     *
+     * <p>调用方需要先判断商品是否存在再调用，或根据返回值区分「不存在」与「更新成功」。
+     */
+    public int updateStatus(long id, String status) {
+        return jdbc.update("UPDATE products SET status = ? WHERE id = ?", status, id);
+    }
+
+    /**
      * 按筛选条件分页查询，同时返回筛选后的总数。
      *
      * <p><b>COUNT 与数据查询共用同一份 WHERE 子句与同一个参数列表</b>（见 {@link #buildFilter}），

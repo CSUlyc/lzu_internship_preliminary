@@ -47,7 +47,24 @@ public enum ErrorCode {
     /**
      * HTTP 方法不支持。<b>自主</b>：题目码表未定义。
      */
-    METHOD_NOT_ALLOWED(40500, HttpStatus.METHOD_NOT_ALLOWED, "请求方法不支持");
+    METHOD_NOT_ALLOWED(40500, HttpStatus.METHOD_NOT_ALLOWED, "请求方法不支持"),
+
+    /**
+     * 请求的 Content-Type 不受支持。<b>自主</b>：题目码表未定义。
+     *
+     * <p>例如向只接受 JSON 的接口发送 {@code text/plain}。
+     * 若不单独处理，会被兜底的 {@code Exception} 分支吞成 50000，
+     * 把「客户端用错格式」误报成「服务端故障」。
+     */
+    UNSUPPORTED_MEDIA_TYPE(41500, HttpStatus.UNSUPPORTED_MEDIA_TYPE, "请求的 Content-Type 不支持"),
+
+    /**
+     * 无法产生客户端可接受的响应。<b>自主</b>：题目码表未定义。
+     *
+     * <p>例如 {@code Accept: application/xml}。若不处理，Spring 会返回空响应体，
+     * 破坏「所有接口都返回统一 JSON 结构」的约定。
+     */
+    NOT_ACCEPTABLE(40600, HttpStatus.NOT_ACCEPTABLE, "无法产生客户端可接受的响应类型");
 
     private final int code;
     private final HttpStatus httpStatus;

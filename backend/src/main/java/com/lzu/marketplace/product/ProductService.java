@@ -1,9 +1,13 @@
 package com.lzu.marketplace.product;
 
+import com.lzu.marketplace.common.BusinessException;
+import com.lzu.marketplace.common.ErrorCode;
 import com.lzu.marketplace.common.PageResult;
 import com.lzu.marketplace.product.dto.CreateProductRequest;
 import com.lzu.marketplace.product.dto.ProductQuery;
 import com.lzu.marketplace.product.dto.ProductResponse;
+import com.lzu.marketplace.product.dto.ProductStatusResponse;
+import com.lzu.marketplace.product.dto.UpdateProductStatusRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -49,6 +53,35 @@ public class ProductService {
                 .map(ProductResponse::from)
                 .toList();
         return PageResult.of(page.total(), page.page(), page.pageSize(), items);
+    }
+
+    /**
+     * 按 id 查询商品详情（官方 §4 L0-4）。不存在抛 404 + 40401。
+     */
+    public ProductResponse getById(long id) {
+        return repository.findById(id)
+                .map(ProductResponse::from)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在"));
+    }
+
+    /**
+     * 更新商品上下架状态（官方 §4 L0-5）。
+     *
+     * <p>不存在 → 404 + 40401。状态值合法性已由 {@link UpdateProductStatusRequest} 的
+     * {@code @Pattern} 拦截，走到这里时一定是 on 或 off。
+     *
+     * <p>重复设置相同状态是幂等的：结果仍是 200，返回当前状态，不报错。
+     * 这与「订单已支付不可重复支付」不同——上下架是幂等的赋值操作，不是状态机迁移。
+     */
+    @Transactional
+    public ProductStatusResponse updateStatus(long id, String status) {
+        int affected = repository.updateStatus(id, status);
+        if (affected == 0) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "商品不存在");
+        }
+        return repository.findById(id)
+                .map(ProductStatusResponse::from)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在"));
     }
 
     /**

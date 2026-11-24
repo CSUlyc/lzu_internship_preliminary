@@ -7,6 +7,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -131,6 +133,32 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleMethodNotAllowed(HttpRequestMethodNotSupportedException ex,
                                                                     HttpServletRequest req) {
         return build(ErrorCode.METHOD_NOT_ALLOWED, ErrorCode.METHOD_NOT_ALLOWED.defaultMessage());
+    }
+
+    /**
+     * Content-Type 不受支持（如向 JSON 接口发 text/plain）。
+     *
+     * <p>没有这个处理器时会落到 {@code Exception} 兜底，变成 50000 / HTTP 500，
+     * 把客户端错误误报成服务端故障。
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex,
+                                                                         HttpServletRequest req) {
+        return build(ErrorCode.UNSUPPORTED_MEDIA_TYPE,
+                ErrorCode.UNSUPPORTED_MEDIA_TYPE.defaultMessage());
+    }
+
+    /**
+     * 无法产生客户端可接受的响应（如 {@code Accept: application/xml}）。
+     *
+     * <p>注意：这个异常在响应已经部分提交或内容协商阶段抛出时，
+     * Spring 仍会尝试用本处理器序列化响应。<b>但它可能仍返回空体</b>——
+     * 已通过 {@code WebConfig.configureContentNegotiation} 固定默认内容类型来降低触发概率。
+     */
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMediaTypeNotAcceptable(HttpMediaTypeNotAcceptableException ex,
+                                                                          HttpServletRequest req) {
+        return build(ErrorCode.NOT_ACCEPTABLE, ErrorCode.NOT_ACCEPTABLE.defaultMessage());
     }
 
     // ------------------------------------------------------------------
