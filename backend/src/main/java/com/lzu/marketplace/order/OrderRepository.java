@@ -1,5 +1,7 @@
 package com.lzu.marketplace.order;
 
+import com.lzu.marketplace.common.PageResult;
+import com.lzu.marketplace.order.dto.OrderQuery;
 import com.lzu.marketplace.product.Product;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -9,10 +11,11 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.PreparedStatement;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 /**
- * 下单相关的持久层。对 products 只做两件下单需要的事：加锁读取、条件扣减。
+ * 下单与订单查询的持久层。对 products 只做下单需要的事：加锁读取、条件扣减。
  */
 @Repository
 public class OrderRepository {
@@ -125,5 +128,49 @@ public class OrderRepository {
                         ORDER_ROW_MAPPER, id)
                 .stream()
                 .findFirst();
+    }
+
+    /**
+     * 按订单号查详情（官方 §5 L1-7）。
+     *
+     * <p>order_no 在库里有唯一约束（{@code uk_orders_order_no}），命中行至多一条。
+     */
+    public Optional<Order> findByOrderNo(String orderNo) {
+        return jdbc.query(
+                        "SELECT " + ORDER_COLUMNS + " FROM orders WHERE order_no = ?",
+                        ORDER_ROW_MAPPER, orderNo)
+                .stream()
+                .findFirst();
+    }
+
+    /**
+     * 按买家手机号分页查询订单，创建时间倒序（官方 §5 L1-8）。
+     *
+     * <p><b>排序稳定性</b>：{@code ORDER BY created_at DESC, id DESC}。
+     * created_at 是 TIMESTAMP，同一毫秒内批量插入的订单会并列；
+     * 只按 created_at 排序时，并列行的相对次序由数据库决定且可能随执行计划变化，
+     * 翻页就会重复或漏掉记录。追加 id DESC 给出总序中的确定性位置。
+     * 这与商品列表采用的是同一条约定。
+     *
+     * <p><b>过滤范围</b>：{@code WHERE buyer_phone = ?} 精确匹配，
+     * 手机号经参数绑定而非字符串拼接；只有该买家的订单会被 COUNT 和分页查询看到，
+     * 不存在「先取全表再在内存里过滤」导致越界返回的路径。
+     *
+     * <p>COUNT 与数据查询共用同一个 WHERE 子句和参数，保证 total 与 items 一致。
+     */
+    public PageResult<Order> searchByBuyerPhone(OrderQuery q) {
+        Long total = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orders WHERE buyer_phone = ?",
+                Long.class,
+                q.buyerPhone());
+
+        List<Order> items = jdbc.query(
+                "SELECT " + ORDER_COLUMNS + " FROM orders WHERE buyer_phone = ?"
+                        + " ORDER BY created_at DESC, id DESC"
+                        + " LIMIT ? OFFSET ?",
+                ORDER_ROW_MAPPER,
+                q.buyerPhone(), q.pageSize(), q.offset());
+
+        return PageResult.of(total == null ? 0L : total, q.page(), q.pageSize(), items);
     }
 }

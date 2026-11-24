@@ -2,11 +2,15 @@ package com.lzu.marketplace.order;
 
 import com.lzu.marketplace.common.BusinessException;
 import com.lzu.marketplace.common.ErrorCode;
+import com.lzu.marketplace.common.PageResult;
 import com.lzu.marketplace.order.dto.CreateOrderRequest;
+import com.lzu.marketplace.order.dto.OrderQuery;
 import com.lzu.marketplace.order.dto.OrderResponse;
 import com.lzu.marketplace.product.Product;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 /**
  * 下单业务（官方 §5 L1-6）。
@@ -88,5 +92,27 @@ public class OrderService {
                 req.address().trim());
 
         return OrderResponse.from(order);
+    }
+
+    /**
+     * 按订单号查详情（官方 §5 L1-7）。不存在 → 404 + 40401。
+     */
+    public OrderResponse getByOrderNo(String orderNo) {
+        return repository.findByOrderNo(orderNo)
+                .map(OrderResponse::from)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "订单不存在"));
+    }
+
+    /**
+     * 按买家手机号分页查询订单（官方 §5 L1-8）。
+     *
+     * <p>手机号必填的校验在 {@link OrderQuery#of} 里完成；空结果返回 {@code items: []}。
+     */
+    public PageResult<OrderResponse> listByBuyerPhone(OrderQuery query) {
+        PageResult<Order> page = repository.searchByBuyerPhone(query);
+        List<OrderResponse> items = page.items().stream()
+                .map(OrderResponse::from)
+                .toList();
+        return PageResult.of(page.total(), page.page(), page.pageSize(), items);
     }
 }
