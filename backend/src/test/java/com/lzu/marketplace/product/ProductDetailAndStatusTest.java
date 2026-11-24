@@ -1,6 +1,7 @@
 package com.lzu.marketplace.product;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lzu.marketplace.auth.AuthTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,11 +40,15 @@ class ProductDetailAndStatusTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    /** L2-11：本类的发布/上下架均需要 token，用例前登录一次。 */
+    private String token;
+
     @BeforeEach
-    void clean() {
+    void clean() throws Exception {
         jdbc.update("DELETE FROM payments");
         jdbc.update("DELETE FROM orders");
         jdbc.update("DELETE FROM products");
+        token = AuthTestSupport.login(mockMvc, objectMapper);
     }
 
     // ================= L0-4 详情 =================
@@ -108,6 +113,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("off")))
                 .andExpect(status().isOk())
@@ -125,6 +131,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("off")))
                 .andExpect(status().isOk());
@@ -147,6 +154,7 @@ class ProductDetailAndStatusTest {
         setStatus(id, "off");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("on")))
                 .andExpect(status().isOk())
@@ -163,6 +171,7 @@ class ProductDetailAndStatusTest {
 
         setStatus(id, "off");
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("off")))
                 .andExpect(status().isOk())
@@ -175,6 +184,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("on")))
                 .andExpect(status().isOk())
@@ -189,6 +199,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("unknown")))
                 .andExpect(status().isBadRequest())
@@ -202,6 +213,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("ON")))
                 .andExpect(status().isBadRequest())
@@ -214,6 +226,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("")))
                 .andExpect(status().isBadRequest())
@@ -226,6 +239,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":null}"))
                 .andExpect(status().isBadRequest())
@@ -238,6 +252,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
@@ -253,6 +268,7 @@ class ProductDetailAndStatusTest {
         // 不拦截「数字 → String」，所以 1 会先被转成 "1"，再由 @Pattern("on|off") 拒绝。
         // 结果仍是 400 + 40001，符合题目「status 只能是 on/off」的要求。
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":1}"))
                 .andExpect(status().isBadRequest())
@@ -266,6 +282,7 @@ class ProductDetailAndStatusTest {
         setStatus(id, "off");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("bad")))
                 .andExpect(status().isBadRequest());
@@ -280,6 +297,7 @@ class ProductDetailAndStatusTest {
     @DisplayName("上下架：id 非数字 → 400 / 40001")
     void statusNonNumericId() throws Exception {
         mockMvc.perform(patch("/api/products/{id}/status", "abc")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("off")))
                 .andExpect(status().isBadRequest())
@@ -290,6 +308,7 @@ class ProductDetailAndStatusTest {
     @DisplayName("上下架：商品不存在 → 404 / 40401")
     void statusProductNotFound() throws Exception {
         mockMvc.perform(patch("/api/products/{id}/status", 999999)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("off")))
                 .andExpect(status().isNotFound())
@@ -303,6 +322,7 @@ class ProductDetailAndStatusTest {
         long id = createProduct("测试商品", 1990, 10, "文具");
 
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{bad"))
                 .andExpect(status().isBadRequest())
@@ -337,6 +357,7 @@ class ProductDetailAndStatusTest {
         String response = mockMvc.perform(
                         org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                                 .post("/api/products")
+                                .header("Authorization", AuthTestSupport.bearer(token))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isCreated())
@@ -346,6 +367,7 @@ class ProductDetailAndStatusTest {
 
     private void setStatus(long id, String status) throws Exception {
         mockMvc.perform(patch("/api/products/{id}/status", id)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(status)))
                 .andExpect(status().isOk());

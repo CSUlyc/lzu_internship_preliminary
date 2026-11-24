@@ -64,7 +64,18 @@ public enum ErrorCode {
      * <p>例如 {@code Accept: application/xml}。若不处理，Spring 会返回空响应体，
      * 破坏「所有接口都返回统一 JSON 结构」的约定。
      */
-    NOT_ACCEPTABLE(40600, HttpStatus.NOT_ACCEPTABLE, "无法产生客户端可接受的响应类型");
+    NOT_ACCEPTABLE(40600, HttpStatus.NOT_ACCEPTABLE, "无法产生客户端可接受的响应类型"),
+
+    /**
+     * 缺少 Authorization: Bearer token 请求头。<b>自主</b>：题目 §3 允许鉴权失败使用
+     * 自定业务码（仅当选择 L2-11 时适用），本项目沿 401 段自定 40101。
+     */
+    UNAUTHORIZED_MISSING_TOKEN(40101, HttpStatus.UNAUTHORIZED, "缺少 Authorization: Bearer <token> 请求头"),
+
+    /**
+     * token 无效或已失效（不是 Bearer 格式 / 未签发 / 服务已重启）。<b>自主</b>，沿 401 段自定 40102。
+     */
+    UNAUTHORIZED_INVALID_TOKEN(40102, HttpStatus.UNAUTHORIZED, "token 无效或已失效");
 
     private final int code;
     private final HttpStatus httpStatus;

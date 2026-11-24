@@ -1,6 +1,7 @@
 package com.lzu.marketplace.product;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lzu.marketplace.auth.AuthTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,11 +54,15 @@ class ProductBoundaryTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    /** L2-11：发布接口需要 token，用例前登录一次（本类两个直接 POST 用例用它）。 */
+    private String token;
+
     @BeforeEach
-    void clean() {
+    void clean() throws Exception {
         jdbc.update("DELETE FROM payments");
         jdbc.update("DELETE FROM orders");
         jdbc.update("DELETE FROM products");
+        token = AuthTestSupport.login(mockMvc, objectMapper);
     }
 
     // ================= 边界值：恰好在上限 =================
@@ -74,6 +79,7 @@ class ProductBoundaryTest {
         body.put("description", "d".repeat(200));
 
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(body)))
                 .andExpect(status().isCreated())
@@ -95,6 +101,7 @@ class ProductBoundaryTest {
         body.put("stock", 0);
 
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(body)))
                 .andExpect(status().isCreated())

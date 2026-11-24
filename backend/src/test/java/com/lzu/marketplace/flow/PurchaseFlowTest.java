@@ -2,6 +2,7 @@ package com.lzu.marketplace.flow;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lzu.marketplace.auth.AuthTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,11 +51,15 @@ class PurchaseFlowTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    /** L2-11：发布/上下架需要 token，全链路用例前真实登录一次。 */
+    private String token;
+
     @BeforeEach
-    void clean() {
+    void clean() throws Exception {
         jdbc.update("DELETE FROM payments");
         jdbc.update("DELETE FROM orders");
         jdbc.update("DELETE FROM products");
+        token = AuthTestSupport.login(mockMvc, objectMapper);
     }
 
     @Test
@@ -120,6 +125,7 @@ class PurchaseFlowTest {
 
         // 下架商品
         mockMvc.perform(patch("/api/products/{id}/status", productId)
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"off\"}"))
                 .andExpect(status().isOk())
@@ -190,6 +196,7 @@ class PurchaseFlowTest {
         body.put("sellerName", "校园数码铺");
 
         String resp = mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(body)))
                 .andExpect(status().isCreated())

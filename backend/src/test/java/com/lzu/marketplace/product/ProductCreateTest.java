@@ -1,6 +1,7 @@
 package com.lzu.marketplace.product;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lzu.marketplace.auth.AuthTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,13 +40,18 @@ class ProductCreateTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    /** L2-11：本接口需要 Bearer token，每个用例前真实登录一次。 */
+    private String token;
+
     private Map<String, Object> validBody;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         jdbc.update("DELETE FROM payments");
         jdbc.update("DELETE FROM orders");
         jdbc.update("DELETE FROM products");
+
+        token = AuthTestSupport.login(mockMvc, objectMapper);
 
         validBody = new LinkedHashMap<>();
         validBody.put("title", "测试商品");
@@ -62,6 +68,7 @@ class ProductCreateTest {
     @DisplayName("发布成功 → 201，返回完整商品，status 默认 on")
     void createSuccess() throws Exception {
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isCreated())
@@ -82,6 +89,7 @@ class ProductCreateTest {
     @DisplayName("发布成功确实落库，且字段一致")
     void createPersists() throws Exception {
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isCreated());
@@ -103,6 +111,7 @@ class ProductCreateTest {
     void descriptionOptional() throws Exception {
         validBody.remove("description");
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isCreated())
@@ -114,6 +123,7 @@ class ProductCreateTest {
     void zeroStockAccepted() throws Exception {
         validBody.put("stock", 0);
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isCreated())
@@ -125,6 +135,7 @@ class ProductCreateTest {
     void clientStatusIgnored() throws Exception {
         validBody.put("status", "off");
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isCreated())
@@ -136,6 +147,7 @@ class ProductCreateTest {
     void titleTrimmed() throws Exception {
         validBody.put("title", "  测试商品  ");
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isCreated())
@@ -295,6 +307,7 @@ class ProductCreateTest {
     void anyCategoryAccepted() throws Exception {
         validBody.put("category", "自定义分类");
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isCreated())
@@ -307,6 +320,7 @@ class ProductCreateTest {
     @DisplayName("空请求体 → 400，统一结构")
     void emptyBody() throws Exception {
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(""))
                 .andExpect(status().isBadRequest())
@@ -318,6 +332,7 @@ class ProductCreateTest {
     @DisplayName("非法 JSON → 400 / 40002")
     void malformedJson() throws Exception {
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{bad"))
                 .andExpect(status().isBadRequest())
@@ -330,6 +345,7 @@ class ProductCreateTest {
         String evil = "'; DROP TABLE products; --";
         validBody.put("title", evil);
         mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isCreated())
@@ -343,6 +359,7 @@ class ProductCreateTest {
 
     private void expectBadRequest(String fieldInMessage) throws Exception {
         var result = mockMvc.perform(post("/api/products")
+                        .header("Authorization", AuthTestSupport.bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validBody)))
                 .andExpect(status().isBadRequest())
