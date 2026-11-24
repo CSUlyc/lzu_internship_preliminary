@@ -1,6 +1,8 @@
 package com.lzu.marketplace.product;
 
+import com.lzu.marketplace.common.PageResult;
 import com.lzu.marketplace.product.dto.CreateProductRequest;
+import com.lzu.marketplace.product.dto.ProductQuery;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -8,6 +10,9 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
 import java.sql.PreparedStatement;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -78,5 +83,80 @@ public class ProductRepository {
         return jdbc.query("SELECT " + COLUMNS + " FROM products WHERE id = ?", ROW_MAPPER, id)
                 .stream()
                 .findFirst();
+    }
+
+    /**
+     * 按筛选条件分页查询，同时返回筛选后的总数。
+     *
+     * <p><b>COUNT 与数据查询共用同一份 WHERE 子句与同一个参数列表</b>（见 {@link #buildFilter}），
+     * 保证 total 与 items 永远基于同一组过滤条件，不会出现「total 说 5 条、翻页只有 3 条」。
+     */
+    public PageResult<Product> search(ProductQuery q) {
+        Filter filter = buildFilter(q);
+
+        Long total = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM products" + filter.whereClause(),
+                Long.class,
+                filter.args().toArray());
+
+        List<Product> items = jdbc.query(
+                "SELECT " + COLUMNS + " FROM products" + filter.whereClause()
+                        // 确定性排序：created_at 可能并列（同一毫秒批量插入），id 提供稳定的次序，
+                        // 否则翻页时同一条记录可能重复出现或漏掉。
+                        + " ORDER BY created_at DESC, id DESC"
+                        + " LIMIT ? OFFSET ?",
+                ROW_MAPPER,
+                appendArgs(filter.args(), q.pageSize(), q.offset()).toArray());
+
+        return PageResult.of(total == null ? 0L : total, q.page(), q.pageSize(), items);
+    }
+
+    /**
+     * 构造 WHERE 子句与对应参数。
+     *
+     * <p>只用 {@code ?} 占位符拼装结构，值一律走参数绑定：
+     * <ul>
+     *   <li>{@code keyword} 是唯一需要处理通配符的：用户输入的 {@code %} 和 {@code _}
+     *       会被转义，否则输入 {@code %} 会匹配所有商品；</li>
+     *   <li>ESCAPE 字符选 {@code !}（反斜杠在部分数据库/驱动里需要双重转义，容易出错）。</li>
+     * </ul>
+     */
+    private Filter buildFilter(ProductQuery q) {
+        StringBuilder where = new StringBuilder();
+        List<Object> args = new ArrayList<>();
+
+        if (q.keyword() != null) {
+            where.append(where.isEmpty() ? " WHERE " : " AND ");
+            where.append("LOWER(title) LIKE LOWER(?) ESCAPE '!'");
+            args.add("%" + escapeLike(q.keyword()) + "%");
+        }
+        if (q.status() != null) {
+            where.append(where.isEmpty() ? " WHERE " : " AND ");
+            where.append("status = ?");
+            args.add(q.status());
+        }
+        if (q.category() != null) {
+            where.append(where.isEmpty() ? " WHERE " : " AND ");
+            where.append("category = ?");
+            args.add(q.category());
+        }
+        return new Filter(where.toString(), args);
+    }
+
+    /** 转义 LIKE 的通配符，使它们按字面量匹配。 */
+    private static String escapeLike(String raw) {
+        return raw.replace("!", "!!")
+                  .replace("%", "!%")
+                  .replace("_", "!_");
+    }
+
+    private static List<Object> appendArgs(List<Object> base, Object... extra) {
+        List<Object> all = new ArrayList<>(base);
+        all.addAll(Arrays.asList(extra));
+        return all;
+    }
+
+    /** WHERE 子句 + 参数，供 COUNT 与数据查询共用。 */
+    private record Filter(String whereClause, List<Object> args) {
     }
 }

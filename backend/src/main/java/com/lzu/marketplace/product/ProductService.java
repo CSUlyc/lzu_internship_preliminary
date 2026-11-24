@@ -1,15 +1,19 @@
 package com.lzu.marketplace.product;
 
+import com.lzu.marketplace.common.PageResult;
 import com.lzu.marketplace.product.dto.CreateProductRequest;
+import com.lzu.marketplace.product.dto.ProductQuery;
 import com.lzu.marketplace.product.dto.ProductResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.List;
+
 /**
  * 商品业务逻辑。
  *
- * <p>当前只有发布（L0-2）。列表 / 详情 / 上下架在后续阶段补充。
+ * <p>已实现：发布（L0-2）、列表（L0-3）。详情 / 上下架在后续阶段补充。
  */
 @Service
 public class ProductService {
@@ -31,6 +35,20 @@ public class ProductService {
         CreateProductRequest normalized = normalize(req);
         Product saved = repository.insert(normalized, Product.STATUS_ON);
         return ProductResponse.from(saved);
+    }
+
+    /**
+     * 分页查询商品列表（官方 §4 L0-3）。
+     *
+     * <p>筛选条件的校验在 {@link ProductQuery#of} 里完成，这里只负责查询与 DTO 转换。
+     * 空结果返回 {@code items: []}，不是 null。
+     */
+    public PageResult<ProductResponse> list(ProductQuery query) {
+        PageResult<Product> page = repository.search(query);
+        List<ProductResponse> items = page.items().stream()
+                .map(ProductResponse::from)
+                .toList();
+        return PageResult.of(page.total(), page.page(), page.pageSize(), items);
     }
 
     /**
