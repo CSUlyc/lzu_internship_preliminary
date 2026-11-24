@@ -144,6 +144,40 @@ public class OrderRepository {
     }
 
     /**
+     * 在同一事务内对订单行加排他锁读取（{@code SELECT ... FOR UPDATE}）。
+     *
+     * <p>供支付使用：两个并发支付同一订单时，后到者在锁上排队，
+     * 先到者提交后、后到者读到 {@code status='paid'} 返回 40903，
+     * 从根上杜绝「同一订单两条支付记录」。锁持有到事务结束。
+     *
+     * @return 订单不存在时为 empty
+     */
+    public Optional<Order> findByOrderNoForUpdate(String orderNo) {
+        return jdbc.query(
+                        "SELECT " + ORDER_COLUMNS + " FROM orders WHERE order_no = ? FOR UPDATE",
+                        ORDER_ROW_MAPPER, orderNo)
+                .stream()
+                .findFirst();
+    }
+
+    /**
+     * 把订单标记为已支付，同时写入支付时间。返回受影响行数。
+     *
+     * <p>WHERE 带 {@code status = 'created'} 作为第二道防线：锁内已确认过状态，
+     * 但条件更新保证「paid → 再更新」不会发生。返回 0 行表示状态已不是 created，
+     * 调用方按「订单已支付」处理。
+     *
+     * <p>必须同时写 {@code paid_at}：orders 表有 CHECK 约束
+     * {@code (status='paid') = (paid_at IS NOT NULL)}，只改 status 会违反约束。
+     */
+    public int markPaid(String orderNo, LocalDateTime paidAt) {
+        return jdbc.update(
+                "UPDATE orders SET status = 'paid', paid_at = ? " +
+                "WHERE order_no = ? AND status = 'created'",
+                paidAt, orderNo);
+    }
+
+    /**
      * 按买家手机号分页查询订单，创建时间倒序（官方 §5 L1-8）。
      *
      * <p><b>排序稳定性</b>：{@code ORDER BY created_at DESC, id DESC}。
